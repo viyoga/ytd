@@ -16,7 +16,7 @@
   - Automatic optimal subtitle extraction (prioritizes creator-uploaded manual subtitles matching the video's spoken language, then English, with fallback to automatic captions) converted to `.srt` and embedded into the MP4 container.
   - Concurrent fragment downloading with automated retries.
 - **Animated Progress Bars**:
-  - `pacman` style: `[───────ᗧ•••ᗤ]  45.2%  12.4MiB/27.4MiB  ↓ 4.8MiB/s`
+  - `pacman` style: `[───────────󰮯•••••••••••󰊠]  50.0%  12.4MiB/24.8MiB  ↓ 4.8MiB/s`
   - `modern` style: `▕████████░░░░▏ 65.0%  45.1MiB/69.4MiB  ↓ 8.2MiB/s`
 - **Smart Browser Cookies**: Automatically searches for existing authenticated session cookies (Brave, Chrome, Chromium, Firefox) so age-restricted or member videos download without interruption.
 

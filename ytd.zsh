@@ -165,24 +165,20 @@ with open(sys.argv[2], "w", encoding="utf-8") as out_f:
         vid = it["id"]
         title = it["title"]
         dur = it["dur"]
-        uploader = it["uploader"]
-        pub = it["pub"]
+        uploader = it["uploader"] if it["uploader"] != "NA" else ""
+        pub = it["pub"] if it["pub"] != "NA" else ""
 
         dur_str = f"[{dur}]"
         meta_parts = []
-        plain_meta = []
-        if uploader and uploader != "NA":
-            meta_parts.append(uploader)
-            plain_meta.append(uploader)
-        if pub and pub != "NA":
-            meta_parts.append(f"\033[36m{pub}\033[90m")
-            plain_meta.append(pub)
+        if uploader:
+            meta_parts.append(f"\033[36m{uploader}\033[0m")
+        if pub:
+            meta_parts.append(f"\033[1;35m{pub}\033[0m")
 
-        sep = " • "
-        meta_str = f"\033[90m({sep.join(meta_parts)})\033[0m" if meta_parts else ""
-        clean_meta = sep.join(plain_meta)
+        sep = " \033[90m-\033[0m "
+        meta_str = f"\033[90m(\033[0m{sep.join(meta_parts)}\033[90m)\033[0m" if meta_parts else ""
         display = f"\033[33m{dur_str:<10}\033[0m \033[1;37m{title}\033[0m {meta_str}".strip()
-        out_f.write(f"{display}\thttps://youtu.be/{vid}\t{title}\t{clean_meta}\n")
+        out_f.write(f"{display}\thttps://youtu.be/{vid}\t{title}\t{uploader}\t{pub}\n")
 ' "$query" "$tmp_res" >/dev/null 2>&1 &
     local pid=$!
     trap 'kill $pid 2>/dev/null; rm -f "$tmp_res"; return 1' INT
@@ -214,7 +210,17 @@ with open(sys.argv[2], "w", encoding="utf-8") as out_f:
 
     _YTD_PICKED_URL=$(printf "%s" "$selected" | cut -f2)
     _YTD_PICKED_TITLE=$(printf "%s" "$selected" | cut -f3)
-    _YTD_PICKED_META=$(printf "%s" "$selected" | cut -f4)
+    _YTD_PICKED_UPLOADER=$(printf "%s" "$selected" | cut -f4)
+    _YTD_PICKED_PUB=$(printf "%s" "$selected" | cut -f5)
+    local clean_meta=""
+    if [[ -n "$_YTD_PICKED_UPLOADER" && -n "$_YTD_PICKED_PUB" ]]; then
+        clean_meta="$_YTD_PICKED_UPLOADER - $_YTD_PICKED_PUB"
+    elif [[ -n "$_YTD_PICKED_UPLOADER" ]]; then
+        clean_meta="$_YTD_PICKED_UPLOADER"
+    else
+        clean_meta="$_YTD_PICKED_PUB"
+    fi
+    _YTD_PICKED_META="$clean_meta"
     return 0
 }
 
@@ -226,8 +232,12 @@ yts() {
     _ytd_search_picker "$query" || return 1
 
     echo -e "\033[1;32m✔ Video:\033[0m    \033[1;37m$_YTD_PICKED_TITLE\033[0m"
-    if [[ -n "$_YTD_PICKED_META" ]]; then
-        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;36m$_YTD_PICKED_META\033[0m"
+    if [[ -n "$_YTD_PICKED_UPLOADER" ]]; then
+        local chan_line="\033[1;36m$_YTD_PICKED_UPLOADER\033[0m"
+        [[ -n "$_YTD_PICKED_PUB" ]] && chan_line="$chan_line \033[90m-\033[0m \033[1;35m$_YTD_PICKED_PUB\033[0m"
+        echo -e "\033[1;32m✔ Channel:\033[0m  $chan_line"
+    elif [[ -n "$_YTD_PICKED_PUB" ]]; then
+        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;35m$_YTD_PICKED_PUB\033[0m"
     fi
     echo -e "\033[1;32m✔ URL:\033[0m      \033[1;36m$_YTD_PICKED_URL\033[0m"
 
@@ -431,9 +441,11 @@ except Exception:
         echo -e "\033[1;32m✔ Video:\033[0m    \033[1;37m$video_title\033[0m"
     fi
     if [[ -n "$video_uploader" ]]; then
-        local chan_line="$video_uploader"
-        [[ -n "$video_published" ]] && chan_line="$chan_line • \033[36m$video_published\033[0m"
-        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;36m$chan_line\033[0m"
+        local chan_line="\033[1;36m$video_uploader\033[0m"
+        [[ -n "$video_published" ]] && chan_line="$chan_line \033[90m-\033[0m \033[1;35m$video_published\033[0m"
+        echo -e "\033[1;32m✔ Channel:\033[0m  $chan_line"
+    elif [[ -n "$video_published" ]]; then
+        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;35m$video_published\033[0m"
     fi
     if [[ -n "$chosen_lang" ]]; then
         echo -e "\033[1;32m✔ Subtitles:\033[0m\033[33m$chosen_lang\033[0m"
@@ -448,7 +460,7 @@ except Exception:
         sub_opts=(--write-subs --write-auto-sub --sub-langs "^${chosen_lang}$" --convert-subs srt --embed-subs)
     fi
 
-    # Progress bar style: "pacman" (ᗧ···ᗤ) or "modern" (▕████░░░░▏)
+    # Progress bar style: "pacman" (󰮯•••󰊠) or "modern" (▕████░░░░▏)
     local bar_style="${YTD_BAR_STYLE:-pacman}"
 
     yt-dlp "${cookie_args[@]}" \
@@ -465,7 +477,7 @@ width = 24
 
 def draw_bar(pct_raw, downloaded, total, speed):
     try:
-        pct = float(pct_raw)
+        pct = float(str(pct_raw).replace("%", "").strip())
     except:
         return
     pct = max(0.0, min(100.0, pct))
@@ -473,13 +485,19 @@ def draw_bar(pct_raw, downloaded, total, speed):
     empty = width - filled
 
     if style == "pacman":
+        pacman = "\033[1;33m\U000F0BAF\033[0m"
+        ghost_col = "\033[1;36m" if pct >= 75 else "\033[1;31m"
+        ghost = f"{ghost_col}\U000F02A0\033[0m"
         trail = "\033[90m─\033[0m"
+        dot = "\033[90m•\033[0m"
+
         if filled <= 0:
-            bar = "\033[1;33mᗧ\033[0m" + "\033[90m•\033[0m" * max(0, width - 2) + "\033[1;31mᗤ\033[0m"
+            bar = pacman + dot * max(0, width - 2) + ghost
         elif filled >= width - 1:
-            bar = trail * (width - 1) + "\033[1;32mᗤ\033[0m"
+            bar = trail * (width - 1) + "\033[1;32m\U000F0BAF\033[0m"
         else:
-            bar = trail * (filled - 1) + "\033[1;33mᗧ\033[0m" + "\033[90m•\033[0m" * max(0, empty - 1) + "\033[1;31mᗤ\033[0m"
+            dots_count = max(0, width - filled - 1)
+            bar = trail * (filled - 1) + pacman + dot * dots_count + ghost
         bar_box = f"\033[90m[\033[0m{bar}\033[90m]\033[0m"
     else:
         bar = "\033[36m" + "█" * filled + "\033[90m" + "░" * empty + "\033[0m"
