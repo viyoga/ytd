@@ -12,6 +12,7 @@
 - **Smart Downloader (`ytd`)**:
   - Direct URL download or interactive keyword search on the fly.
   - Interactive destination folder picker in your video directory using `fzf`.
+  - Automatically changes directory (`cd`) to the download folder once finished.
   - Automatic optimal subtitle extraction (prioritizes creator-uploaded manual subtitles matching the video's spoken language, then English, with fallback to automatic captions) converted to `.srt` and embedded into the MP4 container.
   - Concurrent fragment downloading with automated retries.
 - **Animated Progress Bars**:
@@ -97,6 +98,9 @@ export YTD_DIR="$HOME/Videos"
 
 # Progress bar theme: "pacman" (default) or "modern"
 export YTD_BAR_STYLE="pacman"
+
+# Automatically cd into download folder upon completion (1: enabled [default], 0: disabled)
+export YTD_AUTO_CD=1
 
 # Browser cookies override (e.g., "firefox", "brave", "chrome")
 # export YTD_COOKIES="brave"

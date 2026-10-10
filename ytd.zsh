@@ -509,6 +509,12 @@ except (KeyboardInterrupt, BrokenPipeError):
         fi
         echo -e "\033[1;32m✔ Video downloaded successfully\033[0m"
         echo -e "\033[1;36m❯ Stored in: $dest_dir\033[0m"
+
+        # Automatically cd into download folder if configured (default: enabled)
+        if [[ "${YTD_AUTO_CD:-1}" != "0" && -d "$dest_dir" && "$PWD" != "$dest_dir" ]]; then
+            cd "$dest_dir" || true
+            echo -e "\033[1;36m❯ Switched directory to:\033[0m \033[1;37m$dest_dir\033[0m"
+        fi
     else
         echo -e "\033[1;31m✖ Download failed with exit code $dl_status\033[0m"
     fi
