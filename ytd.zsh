@@ -50,11 +50,12 @@ _ytd_copy_clipboard() {
     fi
 }
 
-# Internal helper: Search YouTube (@channel or keywords) and interactively pick with fzf
+# Internal helper: Search YouTube (@channel or keywords), display relative publication time, sort newest first, and interactively pick with fzf
 _ytd_search_picker() {
     local query="$*"
     _YTD_PICKED_URL=""
     _YTD_PICKED_TITLE=""
+    _YTD_PICKED_META=""
 
     if [[ -z "$query" ]]; then
         printf '\033[33mSearch YouTube (@channel / keywords): \033[0m'
@@ -62,32 +63,134 @@ _ytd_search_picker() {
         [[ -z "$query" ]] && return 1
     fi
 
-    local target=""
-    local count=15
-    local yt_args=()
-
-    if [[ "$query" =~ ^@ || "$query" =~ ^https?://.*youtube\.com/(@.*|c/.*|channel/.*) ]]; then
-        local ch="${query#@}"
-        if [[ ! "$query" =~ ^https?:// ]]; then
-            target="https://www.youtube.com/@${ch}/videos"
-        else
-            target="${query%/}/videos"
-        fi
-        yt_args=("$target" --playlist-end "$count" --flat-playlist)
-    else
-        target="ytsearch${count}:${query}"
-        yt_args=("$target" --flat-playlist)
-    fi
-
     local tmp_res=$(mktemp)
-    yt-dlp "${yt_args[@]}" --print "%(id)s	%(title)s	%(duration_string)s	%(uploader)s" --no-warnings >| "$tmp_res" 2>/dev/null &
+
+    python3 -c '
+import sys, urllib.request, json, re, subprocess
+
+query = sys.argv[1].strip()
+
+def parse_relative_time(s):
+    if not s:
+        return float("inf")
+    s = s.lower().replace("streamed", "").replace("premiered", "").strip()
+    if any(w in s for w in ["just now", "moments ago", "live", "sec ago", "seconds ago"]):
+        return 0
+    if "yesterday" in s:
+        return 86400
+    m = re.search(r"(\d+)\s*(second|sec|minute|min|hour|hr|day|week|wk|month|mo|year|yr)", s)
+    if not m:
+        return float("inf")
+    num = int(m.group(1))
+    unit = m.group(2)
+    if "sec" in unit: return num
+    if "min" in unit: return num * 60
+    if "hour" in unit or "hr" in unit: return num * 3600
+    if "day" in unit: return num * 86400
+    if "week" in unit or "wk" in unit: return num * 604800
+    if "mo" in unit: return num * 2592000
+    if "year" in unit or "yr" in unit: return num * 31536000
+    return float("inf")
+
+items = []
+try:
+    search_q = query
+    m = re.search(r"youtube\.com/(@[A-Za-z0-9_-]+)", query)
+    if m:
+        search_q = m.group(1)
+
+    payload = {
+        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00"}},
+        "query": search_q,
+        "params": "CAISAhAB"  # Sort by upload date, type: video
+    }
+    req = urllib.request.Request(
+        "https://www.youtube.com/youtubei/v1/search",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    contents = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+    for c in contents:
+        for it in c.get("itemSectionRenderer", {}).get("contents", []):
+            vr = it.get("videoRenderer")
+            if not vr: continue
+            vid = vr.get("videoId")
+            if not vid or len(vid) != 11: continue
+            title = "".join(r.get("text", "") for r in vr.get("title", {}).get("runs", []))
+            dur = vr.get("lengthText", {}).get("simpleText", "")
+            if not dur:
+                for b in vr.get("badges", []):
+                    lbl = b.get("metadataBadgeRenderer", {}).get("label", "")
+                    if lbl: dur = lbl; break
+            if not dur: dur = "Video"
+            uploader = "".join(r.get("text", "") for r in vr.get("ownerText", {}).get("runs", []))
+            pub = vr.get("publishedTimeText", {}).get("simpleText", "")
+            items.append({"id": vid, "title": title, "dur": dur, "uploader": uploader, "pub": pub})
+except Exception:
+    pass
+
+# Fallback to yt-dlp if Innertube search is empty or failed
+if not items:
+    try:
+        target = query
+        if not (query.startswith("http://") or query.startswith("https://")):
+            target = f"ytsearch15:{query}"
+        proc = subprocess.run(
+            ["yt-dlp", target, "--flat-playlist", "--playlist-end", "15", "--print", "%(id)s\t%(title)s\t%(duration_string)s\t%(uploader)s", "--no-warnings"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=12
+        )
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) >= 4 and len(parts[0]) == 11:
+                items.append({
+                    "id": parts[0],
+                    "title": parts[1],
+                    "dur": parts[2] if parts[2] != "NA" else "Video",
+                    "uploader": parts[3] if parts[3] != "NA" else "",
+                    "pub": ""
+                })
+    except Exception:
+        pass
+
+# Sort newest videos first
+items.sort(key=lambda x: parse_relative_time(x.get("pub", "")))
+
+with open(sys.argv[2], "w", encoding="utf-8") as out_f:
+    for it in items:
+        vid = it["id"]
+        title = it["title"]
+        dur = it["dur"]
+        uploader = it["uploader"]
+        pub = it["pub"]
+
+        dur_str = f"[{dur}]"
+        meta_parts = []
+        plain_meta = []
+        if uploader and uploader != "NA":
+            meta_parts.append(uploader)
+            plain_meta.append(uploader)
+        if pub and pub != "NA":
+            meta_parts.append(f"\033[36m{pub}\033[90m")
+            plain_meta.append(pub)
+
+        sep = " • "
+        meta_str = f"\033[90m({sep.join(meta_parts)})\033[0m" if meta_parts else ""
+        clean_meta = sep.join(plain_meta)
+        display = f"\033[33m{dur_str:<10}\033[0m \033[1;37m{title}\033[0m {meta_str}".strip()
+        out_f.write(f"{display}\thttps://youtu.be/{vid}\t{title}\t{clean_meta}\n")
+' "$query" "$tmp_res" >/dev/null 2>&1 &
     local pid=$!
     trap 'kill $pid 2>/dev/null; rm -f "$tmp_res"; return 1' INT
 
     local spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local i=1
     while kill -0 $pid 2>/dev/null; do
-        printf "\r\033[36m%s\033[0m \033[33mSearching YouTube for '%s'...\033[0m" "${spin[$i]}" "$query"
+        printf "\r\033[36m%s\033[0m \033[33mSearching YouTube for '%s' (newest first)...\033[0m" "${spin[$i]}" "$query"
         i=$(( (i % 10) + 1 ))
         sleep 0.08
     done
@@ -95,37 +198,23 @@ _ytd_search_picker() {
     trap - INT
     printf "\r\033[K"
 
-    # Parse and format results for fzf
-    local formatted=$(python3 -c '
-import sys
-
-with open(sys.argv[1]) as f:
-    for line in f:
-        parts = line.strip().split("\t")
-        if len(parts) >= 4:
-            vid, title, dur, uploader = parts[0], parts[1], parts[2], parts[3]
-            if len(vid) == 11:
-                dur_str = f"[{dur}]" if dur and dur != "NA" else "[Video]"
-                uploader_str = f"({uploader})" if uploader and uploader != "NA" else ""
-                display = f"\033[33m{dur_str:<10}\033[0m \033[1;37m{title}\033[0m \033[90m{uploader_str}\033[0m"
-                print(f"{display}\thttps://youtu.be/{vid}\t{title}")
-' "$tmp_res" 2>/dev/null)
-    rm -f "$tmp_res"
-
-    if [[ -z "$formatted" ]]; then
+    if [[ ! -s "$tmp_res" ]]; then
+        rm -f "$tmp_res"
         echo -e "\033[1;31m✖ No videos found for: $query\033[0m"
         return 1
     fi
 
-    local selected=$(printf "%s\n" "$formatted" | fzf --ansi --delimiter='\t' --with-nth=1 \
+    local selected=$(fzf --ansi --delimiter='\t' --with-nth=1 \
         --prompt="Select Video > " \
         --header="Search: $query | [ENTER: Select | ESC: Cancel]" \
-        --height=50% --reverse)
+        --height=50% --reverse < "$tmp_res")
+    rm -f "$tmp_res"
 
     [[ -z "$selected" ]] && return 1
 
     _YTD_PICKED_URL=$(printf "%s" "$selected" | cut -f2)
     _YTD_PICKED_TITLE=$(printf "%s" "$selected" | cut -f3)
+    _YTD_PICKED_META=$(printf "%s" "$selected" | cut -f4)
     return 0
 }
 
@@ -136,8 +225,11 @@ yts() {
     local query="$*"
     _ytd_search_picker "$query" || return 1
 
-    echo -e "\033[1;32m✔ Video:\033[0m \033[1;37m$_YTD_PICKED_TITLE\033[0m"
-    echo -e "\033[1;32m✔ URL:\033[0m   \033[1;36m$_YTD_PICKED_URL\033[0m"
+    echo -e "\033[1;32m✔ Video:\033[0m    \033[1;37m$_YTD_PICKED_TITLE\033[0m"
+    if [[ -n "$_YTD_PICKED_META" ]]; then
+        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;36m$_YTD_PICKED_META\033[0m"
+    fi
+    echo -e "\033[1;32m✔ URL:\033[0m      \033[1;36m$_YTD_PICKED_URL\033[0m"
 
     _ytd_copy_clipboard "$_YTD_PICKED_URL"
     echo -e "\033[1;32m✔ Copied link to clipboard!\033[0m"
@@ -227,13 +319,55 @@ ytd() {
     trap - INT
     printf "\r\033[K"
 
-    # Parse metadata for title and optimal single subtitle language
+    # Parse metadata for title, uploader, published time, and optimal single subtitle language
     local meta_info=$(python3 -c "
-import sys, json
+import sys, json, time, datetime
+
+def format_relative_time(ts, date_str=''):
+    now = time.time()
+    diff = None
+    if ts:
+        try: diff = max(0, int(now - float(ts)))
+        except Exception: pass
+    elif date_str and len(date_str) == 8:
+        try:
+            dt = datetime.datetime.strptime(date_str, '%Y%m%d')
+            diff = max(0, int(now - dt.timestamp()))
+        except Exception: pass
+    if diff is None: return ''
+    if diff < 60: return 'just now'
+    if diff < 3600:
+        m = diff // 60
+        s = 's' if m != 1 else ''
+        return f'{m} min{s} ago'
+    if diff < 86400:
+        h = diff // 3600
+        s = 's' if h != 1 else ''
+        return f'{h} hour{s} ago'
+    if diff < 604800:
+        d = diff // 86400
+        s = 's' if d != 1 else ''
+        return f'{d} day{s} ago'
+    if diff < 2592000:
+        w = diff // 604800
+        s = 's' if w != 1 else ''
+        return f'{w} week{s} ago'
+    if diff < 31536000:
+        mo = diff // 2592000
+        s = 's' if mo != 1 else ''
+        return f'{mo} month{s} ago'
+    y = diff // 31536000
+    s = 's' if y != 1 else ''
+    return f'{y} year{s} ago'
+
 try:
     with open(sys.argv[1]) as f:
         data = json.load(f)
     title = data.get('title', '')
+    uploader = data.get('uploader', '') or ''
+    upload_date = data.get('upload_date', '') or ''
+    timestamp = data.get('timestamp')
+    pub_rel = format_relative_time(timestamp, upload_date)
     vid_lang = data.get('language', '') or ''
     sub = data.get('subtitles', {}) or {}
     acaps = data.get('automatic_captions', {}) or {}
@@ -281,23 +415,30 @@ try:
             if not chosen_lang:
                 chosen_lang = list(acaps.keys())[0]
 
-    print(f'{title}\t{chosen_lang}')
+    print(f'{title}\t{chosen_lang}\t{uploader}\t{pub_rel}')
 except Exception:
-    print('\t')
+    print('\t\t\t')
 " "$meta_tmp" 2>/dev/null)
     rm -f "$meta_tmp"
 
     local video_title=""
     local chosen_lang=""
-    IFS=$'\t' read -r video_title chosen_lang <<< "$meta_info"
+    local video_uploader=""
+    local video_published=""
+    IFS=$'\t' read -r video_title chosen_lang video_uploader video_published <<< "$meta_info"
 
     if [[ -n "$video_title" ]]; then
-        echo -e "\033[1;32m✔ Video:\033[0m \033[1;37m$video_title\033[0m"
+        echo -e "\033[1;32m✔ Video:\033[0m    \033[1;37m$video_title\033[0m"
+    fi
+    if [[ -n "$video_uploader" ]]; then
+        local chan_line="$video_uploader"
+        [[ -n "$video_published" ]] && chan_line="$chan_line • \033[36m$video_published\033[0m"
+        echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;36m$chan_line\033[0m"
     fi
     if [[ -n "$chosen_lang" ]]; then
-        echo -e "\033[1;32m✔ Subtitle language:\033[0m \033[33m$chosen_lang\033[0m"
+        echo -e "\033[1;32m✔ Subtitles:\033[0m\033[33m$chosen_lang\033[0m"
     else
-        echo -e "\033[1;33mℹ Subtitles:\033[0m \033[90mNone available for this video\033[0m"
+        echo -e "\033[1;33mℹ Subtitles:\033[0m\033[90mNone available for this video\033[0m"
     fi
     echo
 

@@ -8,7 +8,7 @@
 
 ## ✨ Features
 
-- **Terminal Search (`yts`)**: Search YouTube with `@channel` or search keywords. Select results interactively with `fzf` displaying duration, title, and uploader. Automatically copies the video URL to your clipboard (Wayland, X11, macOS) and prompts for immediate download.
+- **Terminal Search (`yts`)**: Search YouTube with `@channel` or search keywords. Select results interactively with `fzf` displaying duration, title, uploader, and relative upload time (e.g. `2 hours ago`, `3 days ago`, `1 month ago`) sorted newest-first. Automatically copies the video URL to your clipboard (Wayland, X11, macOS) and prompts for immediate download.
 - **Smart Downloader (`ytd`)**:
   - Direct URL download or interactive keyword search on the fly.
   - Interactive destination folder picker in your video directory using `fzf`.
