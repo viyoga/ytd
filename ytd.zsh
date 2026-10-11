@@ -438,7 +438,11 @@ except Exception:
     # Download: animated horizontal progress bar
     local sub_opts=()
     if [[ -n "$chosen_lang" ]]; then
-        sub_opts=(--write-subs --write-auto-sub --sub-langs "^${chosen_lang}$" --convert-subs srt --embed-subs)
+        sub_opts=(
+            --write-subs --write-auto-sub --sub-langs "^${chosen_lang}$"
+            --embed-subs
+            --compat-options no-keep-subs
+        )
     fi
 
     # Progress bar style: "pacman" (󰮯•••󰊠) or "modern" (▕████░░░░▏)
@@ -451,7 +455,8 @@ except Exception:
         --progress-template "download:PROG:%(progress._percent)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s" \
         "${sub_opts[@]}" \
         --ignore-errors \
-        -f "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/best" \
+        -f "bestvideo*+bestaudio/best" \
+        --merge-output-format mp4 \
         --concurrent-fragments 4 --retries 20 --fragment-retries 20 --socket-timeout 30 \
         -P "$dest_dir" "$url" 2>| "$dl_err_log" | python3 -c '
 import sys
