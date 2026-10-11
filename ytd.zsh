@@ -11,6 +11,12 @@ _ytd_detect_cookies() {
             echo "$YTD_COOKIES"
         fi
         return 0
+    elif [[ -f "$HOME/.config/yt-dlp/cookies.txt" ]]; then
+        echo "file:$HOME/.config/yt-dlp/cookies.txt"
+        return 0
+    elif [[ -f "$HOME/.config/yt-x/cookies.txt" ]]; then
+        echo "file:$HOME/.config/yt-x/cookies.txt"
+        return 0
     fi
     return 1
 }
@@ -120,7 +126,7 @@ if not items:
         if not (query.startswith("http://") or query.startswith("https://")):
             target = f"ytsearch15:{query}"
         proc = subprocess.run(
-            ["yt-dlp", target, "--flat-playlist", "--playlist-end", "15", "--print", "%(id)s\t%(title)s\t%(duration_string)s\t%(uploader)s", "--no-warnings"],
+            ["yt-dlp", "--force-ipv4", target, "--flat-playlist", "--playlist-end", "15", "--print", "%(id)s\t%(title)s\t%(duration_string)s\t%(uploader)s", "--no-warnings"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=12
         )
         for line in proc.stdout.splitlines():
@@ -297,7 +303,7 @@ ytd() {
     local meta_tmp=$(mktemp)
 
     # Fetch video metadata in background with a responsive spinner
-    yt-dlp "${cookie_args[@]}" -J "$url" >| "$meta_tmp" 2>/dev/null &
+    yt-dlp --force-ipv4 "${cookie_args[@]}" -J "$url" >| "$meta_tmp" 2>/dev/null &
     local pid=$!
     trap 'kill $pid 2>/dev/null; rm -f "$meta_tmp"; return 1' INT
 
@@ -450,7 +456,7 @@ except Exception:
 
     local dl_err_log=$(mktemp)
 
-    yt-dlp "${cookie_args[@]}" \
+    yt-dlp --force-ipv4 "${cookie_args[@]}" \
         --no-warnings --quiet --progress --newline \
         --progress-template "download:PROG:%(progress._percent)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s" \
         "${sub_opts[@]}" \
