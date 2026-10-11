@@ -2,37 +2,16 @@
 #  ytd & yts — Interactive YouTube Downloader & Terminal Search for Zsh
 # ==============================================================================
 
-# Helper: Detect installed browser cookie store (override with export YTD_COOKIES="...")
+# Helper: Detect custom browser cookie store (override with export YTD_COOKIES="...")
 _ytd_detect_cookies() {
     if [[ -n "$YTD_COOKIES" ]]; then
-        echo "$YTD_COOKIES"
+        if [[ -f "$YTD_COOKIES" ]]; then
+            echo "file:$YTD_COOKIES"
+        else
+            echo "$YTD_COOKIES"
+        fi
         return 0
     fi
-
-    local -a candidates=(
-        "brave+gnomekeyring:$HOME/.config/BraveSoftware/Brave-Origin-Nightly/Default"
-        "brave+gnomekeyring:$HOME/.config/BraveSoftware/Brave-Browser/Default"
-        "brave:$HOME/.config/BraveSoftware/Brave-Browser/Default"
-        "chrome+gnomekeyring:$HOME/.config/google-chrome/Default"
-        "chrome:$HOME/.config/google-chrome/Default"
-        "chromium+gnomekeyring:$HOME/.config/chromium/Default"
-        "chromium:$HOME/.config/chromium/Default"
-        "firefox"
-    )
-
-    for cand in "${candidates[@]}"; do
-        local p="${cand#*:}"
-        if [[ "$cand" == "$p" ]]; then
-            if command -v "$cand" >/dev/null 2>&1; then
-                echo "$cand"
-                return 0
-            fi
-        elif [[ -d "$p" ]]; then
-            echo "$cand"
-            return 0
-        fi
-    done
-
     return 1
 }
 
@@ -308,7 +287,11 @@ ytd() {
     local -a cookie_args=()
     local detected_cookies
     if detected_cookies="$(_ytd_detect_cookies)"; then
-        cookie_args=(--cookies-from-browser "$detected_cookies")
+        if [[ "$detected_cookies" == file:* ]]; then
+            cookie_args=(--cookies "${detected_cookies#file:}")
+        else
+            cookie_args=(--cookies-from-browser "$detected_cookies")
+        fi
     fi
 
     local meta_tmp=$(mktemp)
@@ -406,23 +389,21 @@ try:
                 chosen_lang = list(sub.keys())[0]
 
     # 2. Check automatic captions if no manual subtitle found
+    # Prefer original speech language (*-orig or audio language) to avoid auto-translate 429 rate limits
     if not chosen_lang and acaps:
-        if base and base != 'en' and base in acaps:
-            chosen_lang = base
-        elif base and base != 'en' and f'{base}-orig' in acaps:
+        if base and f'{base}-orig' in acaps:
             chosen_lang = f'{base}-orig'
-        elif 'en' in acaps:
-            chosen_lang = 'en'
-        elif 'en-orig' in acaps:
-            chosen_lang = 'en-orig'
         elif base and base in acaps:
             chosen_lang = base
+        elif 'en-orig' in acaps:
+            chosen_lang = 'en-orig'
         else:
-            for k in acaps:
-                if k.lower().endswith('-orig'):
-                    chosen_lang = k
-                    break
-            if not chosen_lang:
+            orig = [k for k in acaps if k.lower().endswith('-orig')]
+            if orig:
+                chosen_lang = orig[0]
+            elif 'en' in acaps:
+                chosen_lang = 'en'
+            elif acaps:
                 chosen_lang = list(acaps.keys())[0]
 
     print(f'{title}\t{chosen_lang}\t{uploader}\t{pub_rel}')
@@ -463,13 +444,16 @@ except Exception:
     # Progress bar style: "pacman" (󰮯•••󰊠) or "modern" (▕████░░░░▏)
     local bar_style="${YTD_BAR_STYLE:-pacman}"
 
+    local dl_err_log=$(mktemp)
+
     yt-dlp "${cookie_args[@]}" \
         --no-warnings --quiet --progress --newline \
         --progress-template "download:PROG:%(progress._percent)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s" \
         "${sub_opts[@]}" \
+        --ignore-errors \
         -f "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/best" \
         --concurrent-fragments 4 --retries 20 --fragment-retries 20 --socket-timeout 30 \
-        -P "$dest_dir" "$url" | python3 -c '
+        -P "$dest_dir" "$url" 2>| "$dl_err_log" | python3 -c '
 import sys
 
 style = "'"$bar_style"'"
@@ -523,7 +507,11 @@ except (KeyboardInterrupt, BrokenPipeError):
     echo
     if [[ $dl_status -eq 0 ]]; then
         if [[ -n "$chosen_lang" ]]; then
-            echo -e "\033[1;32m✔ Subtitles ($chosen_lang) downloaded and embedded\033[0m"
+            if grep -iq "Unable to download video subtitles" "$dl_err_log" 2>/dev/null; then
+                echo -e "\033[1;33mℹ Subtitles ($chosen_lang) were rate-limited or unavailable by YouTube; video saved without subtitles\033[0m"
+            else
+                echo -e "\033[1;32m✔ Subtitles ($chosen_lang) downloaded and embedded\033[0m"
+            fi
         fi
         echo -e "\033[1;32m✔ Video downloaded successfully\033[0m"
         echo -e "\033[1;36m❯ Stored in: $dest_dir\033[0m"
@@ -535,5 +523,11 @@ except (KeyboardInterrupt, BrokenPipeError):
         fi
     else
         echo -e "\033[1;31m✖ Download failed with exit code $dl_status\033[0m"
+        if [[ -s "$dl_err_log" ]]; then
+            grep -E "ERROR:|Error:" "$dl_err_log" | head -n 3 | while read -r eline; do
+                echo -e "  \033[90m$eline\033[0m"
+            done
+        fi
     fi
+    rm -f "$dl_err_log"
 }
