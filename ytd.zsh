@@ -468,14 +468,7 @@ except Exception:
 import sys
 
 style = "'"$bar_style"'"
-W     = 44   # inner chars between [ ] — +1 space padding each side in display
-
-def dot_fill(n):
-    """Fill n chars with alternating space/dot: " · · · " """
-    s = ""
-    for i in range(n):
-        s += " " if i % 2 == 0 else "·"
-    return s
+W     = 30   # inner chars inside [ ]
 
 def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     try:
@@ -484,68 +477,29 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
         return
     pct = max(0.0, min(100.0, pct))
 
-    dl   = downloaded.strip()
-    tot  = total.strip()
-    spd  = speed.strip()
-    ela  = elapsed.strip()
+    dl  = downloaded.strip()
+    tot = total.strip()
+    spd = speed.strip()
+    ela = elapsed.strip()
 
     size_field = f"{dl}/{tot}" if tot and tot not in ("NA","N/A","~unknown~") else dl
-    spd_field  = spd if spd  not in ("NA","N/A","~unknown~","") else ""
-    ela_field  = ela if ela  not in ("NA","N/A","~unknown~","") else "--:--"
+    spd_field  = spd if spd not in ("NA","N/A","~unknown~","") else ""
+    ela_field  = ela if ela not in ("NA","N/A","~unknown~","") else "--:--"
 
-    if style == "pacman":
-        # ── Gradient-arrow style ────────────────────────────────────────
-        #  [ ╌╌╌╌╌╌ ░▒▓█▶ · · · · · · · · ]  XX%
-        #
-        # HEAD glides across the bar. The char before the head is always a
-        # space (separator), eating into the trail at the cost of 1 char.
-        HEAD     = "░▒▓█▶"           # 5-char arrow head
-        HEAD_LEN = len(HEAD)          # 5
-        DIM      = "\033[90m"
-        RESET    = "\033[0m"
-        HEAD_CLR = "\033[1;37m"       # bright white while moving
-        HEAD_DON = "\033[1;32m"       # green when done
+    # ── [━━━━━━━━●·········]  45% ─────────────────────────────────────
+    head_pos = int((W - 1) * pct / 100)          # 0 .. W-1
+    trail    = "\033[1m" + "━" * head_pos         # bright trail
+    head     = ("\033[1;32m" if pct >= 100.0 else "\033[1m") + "●"
+    dots     = "\033[90m" + "·" * (W - 1 - head_pos) + "\033[0m"
 
-        avail    = W - HEAD_LEN       # 39 chars for trail + dots area
-        trail_n  = int(avail * pct / 100)
-        dot_n    = avail - trail_n
+    bar     = "[" + trail + head + dots + "\033[0m]"
+    pct_str = f"{pct:>3.0f}%"
 
-        if trail_n > 0:
-            # last trail position becomes the space separator before head
-            trail_str = DIM + "╌" * (trail_n - 1) + RESET + " "
-        else:
-            trail_str = ""
-
-        if pct >= 100.0:
-            head_str = HEAD_DON + HEAD + RESET
-        else:
-            head_str = HEAD_CLR + HEAD + RESET
-
-        dot_str = DIM + dot_fill(dot_n) + RESET
-
-        inner = trail_str + head_str + dot_str
-        bar   = "[ " + inner + " ]"
-        pct_str = f"{pct:>3.0f}%"
-
-        line = (
-            f"\r\033[K"
-            f"  {size_field:>22}  {spd_field:>13}  {ela_field:>5}  "
-            f"{bar}  {pct_str}"
-        )
-
-    else:
-        # ── modern block style (fallback) ────────────────────────────────
-        filled_c = int(W * pct / 100)
-        empty_c  = W - filled_c
-        bar_inner = "\033[36m" + "█" * filled_c + "\033[90m" + "░" * empty_c + "\033[0m"
-        bar     = f"\033[36m▕\033[0m{bar_inner}\033[36m▏\033[0m"
-        pct_str = f"{pct:5.1f}%"
-        line = (
-            f"\r\033[K"
-            f"  {bar} \033[1;36m{pct_str}\033[0m"
-            f"  \033[33m{size_field:<20}\033[0m"
-            f"  \033[32m↓ {spd_field}\033[0m"
-        )
+    line = (
+        f"\r\033[K"
+        f"  {size_field:>22}  {spd_field:>13}  {ela_field:>5}  "
+        f"{bar}  {pct_str}"
+    )
 
     sys.stdout.write(line)
     sys.stdout.flush()
