@@ -435,9 +435,9 @@ except Exception:
         echo -e "\033[1;32m✔ Channel:\033[0m  \033[1;35m$video_published\033[0m"
     fi
     if [[ -n "$chosen_lang" ]]; then
-        echo -e "\033[1;32m✔ Subtitles:\033[0m\033[33m$chosen_lang\033[0m"
+        echo -e "\033[1;32m✔ Subtitles:\033[0m \033[33m$chosen_lang\033[0m"
     else
-        echo -e "\033[1;33mℹ Subtitles:\033[0m\033[90mNone available for this video\033[0m"
+        echo -e "\033[1;33mℹ Subtitles:\033[0m \033[90mNone\033[0m"
     fi
     echo
 
@@ -486,18 +486,34 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     spd_field  = spd if spd not in ("NA","N/A","~unknown~","") else ""
     ela_field  = ela if ela not in ("NA","N/A","~unknown~","") else "--:--"
 
-    # ── [━━━━━━━━●·········]  45% ─────────────────────────────────────
-    head_pos = int((W - 1) * pct / 100)          # 0 .. W-1
-    trail    = "\033[1m" + "━" * head_pos         # bright trail
-    head     = ("\033[1;32m" if pct >= 100.0 else "\033[1m") + "●"
-    dots     = "\033[90m" + "·" * (W - 1 - head_pos) + "\033[0m"
+    # ── [━━━━━━━━━━━━━━━╸◉╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌]  45% ──────────────────────
+    # HEAD = ╸◉ (2 chars): ╸ is the trail end-cap, ◉ is the knob
+    # trail = ━ × N,  unfilled = ╌ × M,  N + 2 + M = W
+    HEAD_LEN = 2
+    avail    = W - HEAD_LEN                    # chars available for trail + dashes
+    trail_n  = int(avail * pct / 100)
+    dash_n   = avail - trail_n
 
-    bar     = "[" + trail + head + dots + "\033[0m]"
+    if trail_n > 0:
+        trail_str = "\033[1m" + "━" * trail_n + "╸\033[0m"
+    else:
+        trail_str = ""                         # no trail, no end-cap at 0%
+
+    if pct >= 100.0:
+        head_str = "\033[1;32m◉\033[0m"       # green when done
+    else:
+        head_str = "\033[1m◉\033[0m"
+
+    dash_str = "\033[90m" + "╌" * dash_n + "\033[0m"
+
+    bar     = "[" + trail_str + head_str + dash_str + "]"
     pct_str = f"{pct:>3.0f}%"
 
+    # Left-align size so there's no dead space at line start;
+    # fixed widths for speed + elapsed keep columns stable.
     line = (
         f"\r\033[K"
-        f"  {size_field:>22}  {spd_field:>13}  {ela_field:>5}  "
+        f"  {size_field:<21}  {spd_field:<12}  {ela_field:<8}  "
         f"{bar}  {pct_str}"
     )
 
