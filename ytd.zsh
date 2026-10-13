@@ -509,7 +509,7 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     bar     = "[" + trail_str + head_str + dash_str + "]"
     pct_str = f"{pct:>3.0f}%"
 
-    # Left-align size so there's no dead space at line start;
+    # Left-align size — no dead space at line start;
     # fixed widths for speed + elapsed keep columns stable.
     icon = "\033[1;32m✔\033[0m" if pct >= 100.0 else "\033[90m󰔛\033[0m"
     line = (
