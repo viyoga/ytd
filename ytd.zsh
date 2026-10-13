@@ -458,7 +458,7 @@ except Exception:
 
     yt-dlp --force-ipv4 "${cookie_args[@]}" \
         --no-warnings --quiet --progress --newline \
-        --progress-template "download:PROG:%(progress._percent)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s" \
+        --progress-template "download:PROG:%(progress._percent)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._elapsed_str)s" \
         "${sub_opts[@]}" \
         --ignore-errors \
         -f "bestvideo*+bestaudio/best" \
@@ -468,48 +468,100 @@ except Exception:
 import sys
 
 style = "'"$bar_style"'"
-width = 24
+width = 46  # chars inside [ ] — matches pacman default
 
-def draw_bar(pct_raw, downloaded, total, speed):
+def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     try:
         pct = float(str(pct_raw).replace("%", "").strip())
     except:
         return
     pct = max(0.0, min(100.0, pct))
-    filled = int(width * pct / 100)
-    empty = width - filled
+
+    dl   = downloaded.strip()
+    tot  = total.strip()
+    spd  = speed.strip()
+    ela  = elapsed.strip()
+
+    if tot and tot not in ("NA", "N/A", "~unknown~"):
+        size_field = f"{dl}/{tot}"
+    else:
+        size_field = dl
+    spd_field = spd  if spd  not in ("NA", "N/A", "~unknown~", "") else ""
+    ela_field = ela  if ela  not in ("NA", "N/A", "~unknown~", "") else "--:--"
+
+    filled = max(0, min(width, int(width * pct / 100)))
 
     if style == "pacman":
-        pacman = "\033[1;33m\U000F0BAF\033[0m"
-        ghost_col = "\033[1;36m" if pct >= 75 else "\033[1;31m"
-        ghost = f"{ghost_col}\U000F02A0\033[0m"
-        trail = "\033[90m─\033[0m"
-        dot = "\033[90m•\033[0m"
+        # ── Exact pacman ILoveCandy layout ──────────────────────────────
+        #  size_field   speed   elapsed  [──────ᗧ ᗤ  ᗤ  ᗤ ]  XX%
+        # Trail char, pac-man, ghost (ᗤ renders as O-shape in some fonts)
+        TRAIL = "─"
+        PAC   = "\033[1;33mᗧ\033[0m"   # yellow
+        PAC_D = "\033[1;32mᗧ\033[0m"   # green when done
+        GHOST = "ᗤ"                    # plain white
+        RESET = "\033[0m"
 
         if filled <= 0:
-            bar = pacman + dot * max(0, width - 2) + ghost
-        elif filled >= width - 1:
-            bar = trail * (width - 1) + "\033[1;32m\U000F0BAF\033[0m"
+            # pac-man at far left, ghosts fill the rest
+            remaining = width - 1
+            ghost_str = ""
+            pos = 0
+            while pos + 3 <= remaining:
+                ghost_str += " " + GHOST + " "
+                pos += 3
+            ghost_str += " " * (remaining - pos)
+            inner = PAC + ghost_str
+
+        elif filled >= width:
+            # all eaten, done — green pac-man at far right
+            inner = TRAIL * (width - 1) + PAC_D
+
         else:
-            dots_count = max(0, width - filled - 1)
-            bar = trail * (filled - 1) + pacman + dot * dots_count + ghost
-        bar_box = f"\033[90m[\033[0m{bar}\033[90m]\033[0m"
+            # trail then pac-man then spaced ghosts
+            trail_str = RESET + TRAIL * (filled - 1) + RESET
+            remaining = width - filled
+            ghost_str = ""
+            pos = 0
+            while pos + 3 <= remaining:
+                ghost_str += " " + GHOST + " "   # " ᗤ " × n concatenates as " ᗤ  ᗤ  ᗤ "
+                pos += 3
+            ghost_str += " " * (remaining - pos)
+            inner = trail_str + PAC + ghost_str
+
+        bar     = f"[{inner}{RESET}]"
+        pct_str = f"{pct:>3.0f}%"
+
+        line = (
+            f"\r\033[K"
+            f"  {size_field:>22}  {spd_field:>13}  {ela_field:>5}  "
+            f"{bar}  {pct_str}"
+        )
+
     else:
-        bar = "\033[36m" + "█" * filled + "\033[90m" + "░" * empty + "\033[0m"
-        bar_box = f"\033[36m▕\033[0m{bar}\033[36m▏\033[0m"
+        # ── modern block style (fallback) ────────────────────────────────
+        filled_c = int(width * pct / 100)
+        empty_c  = width - filled_c
+        bar_inner = "\033[36m" + "█" * filled_c + "\033[90m" + "░" * empty_c + "\033[0m"
+        bar     = f"\033[36m▕\033[0m{bar_inner}\033[36m▏\033[0m"
+        pct_str = f"{pct:5.1f}%"
+        line = (
+            f"\r\033[K"
+            f"  {bar} \033[1;36m{pct_str}\033[0m"
+            f"  \033[33m{size_field:<20}\033[0m"
+            f"  \033[32m↓ {spd_field}\033[0m"
+        )
 
-    dl_str = f"{downloaded.strip()}/{total.strip()}" if total.strip() != "NA" else downloaded.strip()
-    spd_str = f"↓ {speed.strip()}" if speed.strip() != "NA" else ""
-
-    sys.stdout.write(f"\r\033[K  {bar_box} \033[1;36m{pct:5.1f}%\033[0m  \033[33m{dl_str:<17}\033[0m  \033[32m{spd_str}\033[0m")
+    sys.stdout.write(line)
     sys.stdout.flush()
 
 try:
     for line in sys.stdin:
         if line.startswith("PROG:"):
             parts = line[5:].strip().split("|")
-            if len(parts) >= 4:
-                draw_bar(parts[0], parts[1], parts[2], parts[3])
+            if len(parts) >= 5:
+                draw_bar(parts[0], parts[1], parts[2], parts[3], parts[4])
+            elif len(parts) >= 4:
+                draw_bar(parts[0], parts[1], parts[2], parts[3], "")
     print()
 except (KeyboardInterrupt, BrokenPipeError):
     pass
