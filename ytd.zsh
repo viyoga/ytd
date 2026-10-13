@@ -468,7 +468,14 @@ except Exception:
 import sys
 
 style = "'"$bar_style"'"
-width = 46  # chars inside [ ] — matches pacman default
+W     = 44   # inner chars between [ ] — +1 space padding each side in display
+
+def dot_fill(n):
+    """Fill n chars with alternating space/dot: " · · · " """
+    s = ""
+    for i in range(n):
+        s += " " if i % 2 == 0 else "·"
+    return s
 
 def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     try:
@@ -482,53 +489,42 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     spd  = speed.strip()
     ela  = elapsed.strip()
 
-    if tot and tot not in ("NA", "N/A", "~unknown~"):
-        size_field = f"{dl}/{tot}"
-    else:
-        size_field = dl
-    spd_field = spd  if spd  not in ("NA", "N/A", "~unknown~", "") else ""
-    ela_field = ela  if ela  not in ("NA", "N/A", "~unknown~", "") else "--:--"
-
-    filled = max(0, min(width, int(width * pct / 100)))
+    size_field = f"{dl}/{tot}" if tot and tot not in ("NA","N/A","~unknown~") else dl
+    spd_field  = spd if spd  not in ("NA","N/A","~unknown~","") else ""
+    ela_field  = ela if ela  not in ("NA","N/A","~unknown~","") else "--:--"
 
     if style == "pacman":
-        # ── Exact pacman ILoveCandy layout ──────────────────────────────
-        #  size_field   speed   elapsed  [──────ᗧ ᗤ  ᗤ  ᗤ ]  XX%
-        # Trail char, pac-man, ghost (ᗤ renders as O-shape in some fonts)
-        TRAIL = "─"
-        PAC   = "\033[1;33mᗧ\033[0m"   # yellow
-        PAC_D = "\033[1;32mᗧ\033[0m"   # green when done
-        GHOST = "ᗤ"                    # plain white
-        RESET = "\033[0m"
+        # ── Gradient-arrow style ────────────────────────────────────────
+        #  [ ╌╌╌╌╌╌ ░▒▓█▶ · · · · · · · · ]  XX%
+        #
+        # HEAD glides across the bar. The char before the head is always a
+        # space (separator), eating into the trail at the cost of 1 char.
+        HEAD     = "░▒▓█▶"           # 5-char arrow head
+        HEAD_LEN = len(HEAD)          # 5
+        DIM      = "\033[90m"
+        RESET    = "\033[0m"
+        HEAD_CLR = "\033[1;37m"       # bright white while moving
+        HEAD_DON = "\033[1;32m"       # green when done
 
-        if filled <= 0:
-            # pac-man at far left, ghosts fill the rest
-            remaining = width - 1
-            ghost_str = ""
-            pos = 0
-            while pos + 3 <= remaining:
-                ghost_str += " " + GHOST + " "
-                pos += 3
-            ghost_str += " " * (remaining - pos)
-            inner = PAC + ghost_str
+        avail    = W - HEAD_LEN       # 39 chars for trail + dots area
+        trail_n  = int(avail * pct / 100)
+        dot_n    = avail - trail_n
 
-        elif filled >= width:
-            # all eaten, done — green pac-man at far right
-            inner = TRAIL * (width - 1) + PAC_D
-
+        if trail_n > 0:
+            # last trail position becomes the space separator before head
+            trail_str = DIM + "╌" * (trail_n - 1) + RESET + " "
         else:
-            # trail then pac-man then spaced ghosts
-            trail_str = RESET + TRAIL * (filled - 1) + RESET
-            remaining = width - filled
-            ghost_str = ""
-            pos = 0
-            while pos + 3 <= remaining:
-                ghost_str += " " + GHOST + " "   # " ᗤ " × n concatenates as " ᗤ  ᗤ  ᗤ "
-                pos += 3
-            ghost_str += " " * (remaining - pos)
-            inner = trail_str + PAC + ghost_str
+            trail_str = ""
 
-        bar     = f"[{inner}{RESET}]"
+        if pct >= 100.0:
+            head_str = HEAD_DON + HEAD + RESET
+        else:
+            head_str = HEAD_CLR + HEAD + RESET
+
+        dot_str = DIM + dot_fill(dot_n) + RESET
+
+        inner = trail_str + head_str + dot_str
+        bar   = "[ " + inner + " ]"
         pct_str = f"{pct:>3.0f}%"
 
         line = (
@@ -539,8 +535,8 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
 
     else:
         # ── modern block style (fallback) ────────────────────────────────
-        filled_c = int(width * pct / 100)
-        empty_c  = width - filled_c
+        filled_c = int(W * pct / 100)
+        empty_c  = W - filled_c
         bar_inner = "\033[36m" + "█" * filled_c + "\033[90m" + "░" * empty_c + "\033[0m"
         bar     = f"\033[36m▕\033[0m{bar_inner}\033[36m▏\033[0m"
         pct_str = f"{pct:5.1f}%"
