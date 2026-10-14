@@ -486,35 +486,37 @@ def draw_bar(pct_raw, downloaded, total, speed, elapsed):
     spd_field  = spd if spd not in ("NA","N/A","~unknown~","") else ""
     ela_field  = ela if ela not in ("NA","N/A","~unknown~","") else "--:--"
 
-    # ── [━━━━━━━━━━━━━━━╸◉╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌]  45% ──────────────────────
-    # HEAD = ╸◉ (2 chars): ╸ is the trail end-cap, ◉ is the knob
-    # trail = ━ × N,  unfilled = ╌ × M,  N + 2 + M = W
-    HEAD_LEN = 2
-    avail    = W - HEAD_LEN                    # chars available for trail + dashes
-    trail_n  = int(avail * pct / 100)
-    dash_n   = avail - trail_n
-
-    if trail_n > 0:
-        trail_str = "\033[1m" + "━" * trail_n + "╸\033[0m"
-    else:
-        trail_str = ""                         # no trail, no end-cap at 0%
+    # ── [━━━━━━━━━━━ᗧ • • • • • • • • •]  45% ─────────────────────────
+    avail = W - 1                              # 1 char reserved for Pacman head ᗧ
+    trail_n = int(avail * pct / 100)
+    rem = avail - trail_n
 
     if pct >= 100.0:
-        head_str = "\033[1;32m◉\033[0m"       # green when done
+        icon = "\033[1;32m✔\033[0m"
+        trail_str = "\033[1;32m" + ("━" * (W - 1)) + "\033[0m"
+        head_str = "\033[1;32mᗧ\033[0m"
+        dots_str = ""
+        pct_color = "\033[1;32m"
     else:
-        head_str = "\033[1m◉\033[0m"
+        icon = "\033[36m󰔛\033[0m"
+        trail_str = "\033[33m" + ("━" * trail_n) + "\033[0m"
+        head_str = "\033[1;33mᗧ\033[0m"
+        dots_pattern = (" •" * ((rem + 1) // 2))[:rem]
+        dots_str = "\033[90m" + dots_pattern + "\033[0m"
+        pct_color = "\033[1;33m"
 
-    dash_str = "\033[90m" + "╌" * dash_n + "\033[0m"
+    bar = f"\033[90m[\033[0m{trail_str}{head_str}{dots_str}\033[90m]\033[0m"
+    pct_str = f"{pct_color}{pct:>3.0f}%\033[0m"
 
-    bar     = "[" + trail_str + head_str + dash_str + "]"
-    pct_str = f"{pct:>3.0f}%"
+    # Colorized metadata fields matching Noctalia theme:
+    # Size in warm amber/yellow (\033[33m), speed in cyan/teal (\033[36m), elapsed in muted gray (\033[90m)
+    size_str = f"\033[33m{size_field:<21}\033[0m"
+    spd_str  = f"\033[36m{spd_field:<12}\033[0m"
+    ela_str  = f"\033[90m{ela_field:<8}\033[0m"
 
-    # Left-align size — no dead space at line start;
-    # fixed widths for speed + elapsed keep columns stable.
-    icon = "\033[1;32m✔\033[0m" if pct >= 100.0 else "\033[90m󰔛\033[0m"
     line = (
         f"\r\033[K"
-        f"{icon} {size_field:<21}  {spd_field:<12}  {ela_field:<8}  "
+        f"{icon} {size_str}  {spd_str}  {ela_str}  "
         f"{bar}  {pct_str}"
     )
 
