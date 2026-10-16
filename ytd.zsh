@@ -79,16 +79,34 @@ def parse_relative_time(s):
 
 items = []
 try:
-    search_q = query
-    m = re.search(r"youtube\.com/(@[A-Za-z0-9_-]+)", query)
-    if m:
-        search_q = m.group(1)
+    vid_m = re.search(r"(?:v=|\/live\/|\/shorts\/|youtu\.be\/|^)([A-Za-z0-9_-]{11})(?:[&?]|$)", query)
+    if vid_m and ("youtu" in query or len(query) == 11):
+        vid = vid_m.group(1)
+        proc = subprocess.run(
+            ["yt-dlp", "--force-ipv4", f"https://www.youtube.com/watch?v={vid}", "--print", "%(id)s\t%(title)s\t%(duration_string)s\t%(uploader)s", "--no-warnings"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=12
+        )
+        for line in proc.stdout.splitlines():
+            parts = line.strip().split("\t")
+            if len(parts) >= 4 and len(parts[0]) == 11:
+                items.append({
+                    "id": parts[0],
+                    "title": parts[1],
+                    "dur": parts[2] if parts[2] != "NA" else "Video",
+                    "uploader": parts[3] if parts[3] != "NA" else "",
+                    "pub": ""
+                })
+    if not items:
+        search_q = query
+        m = re.search(r"youtube\.com/(@[A-Za-z0-9_-]+)", query)
+        if m:
+            search_q = m.group(1)
 
-    payload = {
-        "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00"}},
-        "query": search_q,
-        "params": "CAISAhAB"  # Sort by upload date, type: video
-    }
+        payload = {
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240101.00.00"}},
+            "query": search_q,
+            "params": "CAISAhAB"  # Sort by upload date, type: video
+        }
     req = urllib.request.Request(
         "https://www.youtube.com/youtubei/v1/search",
         data=json.dumps(payload).encode("utf-8"),
@@ -246,7 +264,7 @@ ytd() {
 
     # 1. If arguments passed, detect whether URL or search
     if [[ -n "$input" ]]; then
-        if [[ "$input" =~ ^https?://(www\.)?(youtube\.com/watch\?|youtu\.be/|youtube\.com/shorts/) ]]; then
+        if [[ "$input" =~ ^https?://((www|m)\.)?(youtube\.com/(watch\?|shorts/|live/)|youtu\.be/) ]]; then
             target_url="$input"
         else
             _ytd_search_picker "$input" || return 1
@@ -279,7 +297,7 @@ ytd() {
         read -r input
         [[ -z "$input" ]] && return
 
-        if [[ "$input" =~ ^https?://(www\.)?(youtube\.com/watch\?|youtu\.be/|youtube\.com/shorts/) ]]; then
+        if [[ "$input" =~ ^https?://((www|m)\.)?(youtube\.com/(watch\?|shorts/|live/)|youtu\.be/) ]]; then
             target_url="$input"
         else
             _ytd_search_picker "$input" || return 1
